@@ -26,6 +26,21 @@ CREATE TYPE interaction_status AS ENUM(
     'PROCESSING'
 );
 
+CREATE TYPE task_status AS ENUM(
+    'QUEUED',
+    'PROCESSING',
+    'COMPLETED',
+    'FAILED',
+    'DEFERRED'
+);
+
+CREATE TYPE recording_status AS ENUM(
+    'PENDING',
+    'READY',
+    'FAILED',
+    'SKIPPED'
+);
+
 CREATE TABLE leads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID NOT NULL,
@@ -74,6 +89,10 @@ CREATE TABLE interactions (
     customer_id UUID NOT NULL,
     agent_id UUID NOT NULL,
 
+    priority_class SMALLINT DEFAULT 1 CHECK (priority_class IN (0, 1, 2)),
+    postcall_task_id UUID,
+    processing_status task_status NOT NULL DEFAULT 'PENDING',
+
     status interaction_status NOT NULL DEFAULT 'INITIATED',
     call_sid VARCHAR(255),
     call_provider VARCHAR(50) DEFAULT 'exotel',
@@ -110,9 +129,54 @@ CREATE INDEX idx_interactions_campaign ON interactions(campaign_id);
 CREATE INDEX idx_interactions_customer ON interactions(customer_id);
 CREATE INDEX idx_interactions_call_sid ON interactions(call_sid);
 CREATE INDEX idx_interactions_status ON interactions(status);
+CREATE INDEX idx_interactions_processing_status ON interactions(processing_status) WHERE processing_status IN ('PENDING', 'PROCESSING', 'FAILED');
 
 CREATE TRIGGER trg_interactions_updated_at
 BEFORE UPDATE ON interactions
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
+
+CREATE TABLE IF NOT EXISTS postcall_tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    interaction_id UUID NOT NULL,
+    priority_class SMALLINT NOT NULL DEFAULT 1 CHECK (priority_class IN (0, 1, 2)),
+    customer_id UUID NOT NULL,
+    
+    status task_status NOT NULL DEFAULT 'QUEUED',
+    scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    
+    recording_status recording_status NOT NULL DEFAULT 'PENDING',
+    recording_s3_key TEXT,
+    recording_retry_count INT NOT NULL DEFAULT 0,
+    next_poll_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    estimated_tokens INT NOT NULL,
+    actual_tokens INT,
+    
+    retry_count INT NOT NULL DEFAULT 0,
+    max_retries INT NOT NULL DEFAULT 5,
+    error_log JSONB NOT NULL DEFAULT '[]',
+    
+    downstream_triggers JSONB NOT NULL DEFAULT '{}'::jsonb,
+    
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    version INT NOT NULL DEFAULT 1,
+    
+    CONSTRAINT fk_postcall_interaction FOREIGN KEY (interaction_id) REFERENCES interactions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_postcall_tasks_priority_scheduled ON postcall_tasks(priority_class, scheduled_at) WHERE status IN ('QUEUED', 'DEFERRED');
+CREATE INDEX idx_postcall_tasks_recording_poll ON postcall_tasks(next_poll_at) WHERE recording_status = 'PENDING';
+CREATE INDEX idx_postcall_tasks_status ON postcall_tasks(status);
+CREATE INDEX idx_postcall_tasks_interaction ON postcall_tasks(interaction_id);
+CREATE INDEX idx_postcall_tasks_customer ON postcall_tasks(customer_id, status);
+
+CREATE TRIGGER trg_postcall_tasks_updated_at
+BEFORE UPDATE ON postcall_tasks
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
 
