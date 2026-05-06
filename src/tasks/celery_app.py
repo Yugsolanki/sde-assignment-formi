@@ -18,4 +18,6 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     task_default_queue=settings.POSTCALL_CELERY_QUEUE,
+    broker_connection_retry_on_startup=True,
+    imports=["src.tasks.celery_tasks"],
 )
