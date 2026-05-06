@@ -91,7 +91,7 @@ CREATE TABLE interactions (
 
     priority_class SMALLINT DEFAULT 1 CHECK (priority_class IN (0, 1, 2)),
     postcall_task_id UUID,
-    processing_status task_status NOT NULL DEFAULT 'PENDING',
+    processing_status task_status NOT NULL DEFAULT 'QUEUED',
 
     status interaction_status NOT NULL DEFAULT 'INITIATED',
     call_sid VARCHAR(255),
@@ -129,7 +129,7 @@ CREATE INDEX idx_interactions_campaign ON interactions(campaign_id);
 CREATE INDEX idx_interactions_customer ON interactions(customer_id);
 CREATE INDEX idx_interactions_call_sid ON interactions(call_sid);
 CREATE INDEX idx_interactions_status ON interactions(status);
-CREATE INDEX idx_interactions_processing_status ON interactions(processing_status) WHERE processing_status IN ('PENDING', 'PROCESSING', 'FAILED');
+CREATE INDEX idx_interactions_processing_status ON interactions(processing_status) WHERE processing_status IN ('QUEUED', 'PROCESSING', 'FAILED');
 
 CREATE TRIGGER trg_interactions_updated_at
 BEFORE UPDATE ON interactions
