@@ -44,6 +44,7 @@ from src.services.recording import fetch_and_upload_recording
 from src.services.signal_jobs import trigger_signal_jobs, update_lead_stage
 from src.services.retry_queue import retry_queue
 from src.services.metrics import metrics_tracker
+from src.utils.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def process_interaction_end_background_task(self, payload: Dict[str, Any]):
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    redis_client.reset()
 
     try:
         loop.run_until_complete(_process_interaction(self, payload))
