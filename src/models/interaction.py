@@ -11,12 +11,14 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    SmallInteger,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from src.models.base import Base
+from src.models.postcall_task import TaskStatus, PriorityClass
 
 
 class InteractionStatus(str, enum.Enum):
@@ -41,6 +43,10 @@ class Interaction(Base):
     campaign_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     customer_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     agent_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+
+    priority_class = Column(SmallInteger, nullable=False, default=PriorityClass.NORMAL.value, index=True)
+    postcall_task_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    processing_status = Column(TaskStatus, nullable=False, default=TaskStatus.QUEUED.value, index=True)
 
     status = Column(
         Enum(InteractionStatus), default=InteractionStatus.INITIATED, nullable=False
