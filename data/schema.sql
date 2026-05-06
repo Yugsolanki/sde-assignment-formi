@@ -14,6 +14,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+-- ENUMS
+
+CREATE TYPE interaction_status AS ENUM(
+    'INITIATED',
+    'RINGING',
+    'IN_PROGRESS',
+    'ENDED',
+    'FAILED',
+    'PROCESSING'
+);
+
 CREATE TABLE leads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID NOT NULL,
@@ -62,7 +74,7 @@ CREATE TABLE interactions (
     customer_id UUID NOT NULL,
     agent_id UUID NOT NULL,
 
-    status VARCHAR(20) DEFAULT 'INITIATED',
+    status interaction_status NOT NULL DEFAULT 'INITIATED',
     call_sid VARCHAR(255),
     call_provider VARCHAR(50) DEFAULT 'exotel',
 
