@@ -4,6 +4,16 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Utility Functions
+
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TABLE leads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID NOT NULL,
@@ -20,6 +30,11 @@ CREATE TABLE leads (
 CREATE INDEX idx_leads_campaign ON leads(campaign_id);
 CREATE INDEX idx_leads_customer ON leads(customer_id);
 
+CREATE TRIGGER trg_leads_updated_at
+BEFORE UPDATE ON leads
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
+
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     lead_id UUID NOT NULL REFERENCES leads(id),
@@ -33,6 +48,11 @@ CREATE TABLE sessions (
 
 CREATE INDEX idx_sessions_lead ON sessions(lead_id);
 CREATE INDEX idx_sessions_campaign ON sessions(campaign_id);
+
+CREATE TRIGGER trg_sessions_updated_at
+BEFORE UPDATE ON sessions
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
 
 CREATE TABLE interactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -78,6 +98,11 @@ CREATE INDEX idx_interactions_campaign ON interactions(campaign_id);
 CREATE INDEX idx_interactions_customer ON interactions(customer_id);
 CREATE INDEX idx_interactions_call_sid ON interactions(call_sid);
 CREATE INDEX idx_interactions_status ON interactions(status);
+
+CREATE TRIGGER trg_interactions_updated_at
+BEFORE UPDATE ON interactions
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
 
 -- Seed data: sample interactions for testing
 -- (Uses fixed UUIDs for reproducibility)
