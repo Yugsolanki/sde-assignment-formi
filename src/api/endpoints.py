@@ -28,21 +28,36 @@ A few things to notice as you read this file:
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
+from sqlalchemy import select
+
 from src.services.signal_jobs import trigger_signal_jobs, update_lead_stage
 from src.tasks.celery_tasks import process_interaction_end_background_task
+from src.utils.db import async_session_factory
+from src.models.interaction import Interaction
+from src.models.postcall_task import (
+    PostCallTask,
+    PriorityClass,
+    TaskStatus,
+    RecordingStatus,
+)
+from src.services.priority_classifier import priority_classifier
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 class InteractionEndRequest(BaseModel):
+    """
+    request body for the end interaction endpoint sent by Exotel.
+    """
+
     call_sid: Optional[str] = None
     duration_seconds: Optional[int] = None
     call_status: Optional[str] = None
@@ -53,6 +68,10 @@ class InteractionEndRequest(BaseModel):
 
 
 class InteractionEndResponse(BaseModel):
+    """
+    response body for the end interaction endpoint.
+    """
+
     status: str
     interaction_id: str
     message: str
@@ -80,20 +99,25 @@ async def end_interaction(
     4. Return 200 before anything actually processes
     """
     try:
-        interaction = await _load_interaction(interaction_id)
+        # interaction = await _load_interaction(interaction_id)
+        # Load interaction from database
+        async with async_session_factory() as session:
+            stmt = select(Interaction).where(Interaction.id == interaction_id)
+            result = await session.execute(stmt)
+            interaction = result.scalar_one_or_none()
 
-        if not interaction:
-            raise HTTPException(status_code=404, detail="Interaction not found")
+            if not interaction:
+                raise HTTPException(status_code=404, detail="Interaction not found")
 
         await _update_interaction_status(
             interaction_id=str(interaction_id),
             status="ENDED",
-            ended_at=datetime.utcnow(),
+            ended_at=datetime.now(timezone.utc),
             duration=request.duration_seconds,
             call_sid=request.call_sid,
         )
 
-        transcript = interaction.get("conversation_data", {}).get("transcript", [])
+        transcript = interaction.conversation_data.get("transcript", [])
         is_short = len(transcript) < 4
 
         if is_short:
@@ -103,6 +127,13 @@ async def end_interaction(
             logger.info(
                 "short_transcript_fast_path",
                 extra={"interaction_id": str(interaction_id)},
+            )
+
+            # Create a skipped task for audit trial
+            await _create_skipped_task(
+                interaction_id=interaction.id,
+                customer_id=interaction.customer_id,
+                reason="short_transcript",
             )
 
             # These asyncio.create_tasks share the FastAPI event loop.
@@ -124,6 +155,9 @@ async def end_interaction(
                 )
             )
 
+            await _update_processing_status(
+                interaction_id=interaction.id, status="SKIPPED_SHORT"
+            )
         else:
             # Long transcript: pack everything into a Celery payload and enqueue.
             # All calls get the same queue, same priority, same processing path —
@@ -134,53 +168,55 @@ async def end_interaction(
                 for turn in transcript
             )
 
-            celery_payload = {
-                "interaction_id": str(interaction_id),
-                "session_id": str(session_id),
-                "lead_id": interaction["lead_id"],
-                "campaign_id": interaction["campaign_id"],
-                "customer_id": interaction["customer_id"],
-                "agent_id": interaction["agent_id"],
-                "call_sid": request.call_sid,
-                "transcript_text": transcript_text,
-                "conversation_data": interaction.get("conversation_data", {}),
-                "additional_data": request.additional_data or {},
-                "ended_at": datetime.utcnow().isoformat(),
-                "exotel_account_id": interaction.get("exotel_account_id"),
-            }
+            # Classify Priority
+            priority = priority_classifier.classify(
+                transcript_text=transcript_text,
+                conversation_data=interaction.conversation_data,
+                additional_data=request.additional_data,
+            )
 
-            task = process_interaction_end_background_task.apply_async(
-                args=[celery_payload],
-                queue="postcall_processing",  # One queue to rule them all
+            # Estimate tokens
+            estimated_tokens = priority_classifier.estimate_tokens(transcript_text)
+
+            # Create durable task
+            # Create durable task
+            task = await _create_postcall_task(
+                interaction=interaction,
+                priority_class=priority,
+                estimated_tokens=estimated_tokens,
             )
 
             logger.info(
-                "postcall_enqueued",
+                "postcall_task_created",
                 extra={
                     "interaction_id": str(interaction_id),
-                    "celery_task_id": task.id,
-                    # Notice what's NOT logged here: no queue depth, no estimated
-                    # wait time, no indication of how backed up we are.
+                    "task_id": str(task.id),
+                    "priority": priority.value,
+                    "estimated_tokens": estimated_tokens,
                 },
             )
 
-            # These fire immediately — before Celery has done anything.
-            # analysis_result={} means downstream gets an empty analysis.
-            # This was supposed to be a "best effort early trigger" but it
-            # mostly just sends empty payloads to signal_jobs.
+            # update processing status to "QUEUED" after creating the task
+            await _update_processing_status(
+                interaction_id=interaction.id, status="QUEUED"
+            )
+
+            # Trigger immediate signal jobs with empty result (processing started)
             asyncio.create_task(
                 trigger_signal_jobs(
                     interaction_id=str(interaction_id),
                     session_id=str(session_id),
-                    campaign_id=interaction["campaign_id"],
-                    analysis_result={},  # ← Celery hasn't run yet. This is empty.
+                    campaign_id=str(interaction.campaign_id),
+                    analysis_result={},
                 )
             )
+
+            # Update lead stage to processing
             asyncio.create_task(
                 update_lead_stage(
-                    lead_id=interaction["lead_id"],
+                    lead_id=str(interaction.lead_id),
                     interaction_id=str(interaction_id),
-                    call_stage="processing",  # ← Placeholder, not a real outcome
+                    call_stage="processing",
                 )
             )
 
@@ -224,11 +260,20 @@ async def _load_interaction(interaction_id: UUID) -> Optional[Dict[str, Any]]:
             "transcript": [
                 {"role": "agent", "content": "Hello, am I speaking with Mr. Sharma?"},
                 {"role": "customer", "content": "Yes, speaking."},
-                {"role": "agent", "content": "I'm calling from XYZ about your recent inquiry."},
-                {"role": "customer", "content": "Oh yes, I was looking at the product."},
+                {
+                    "role": "agent",
+                    "content": "I'm calling from XYZ about your recent inquiry.",
+                },
+                {
+                    "role": "customer",
+                    "content": "Oh yes, I was looking at the product.",
+                },
                 {"role": "agent", "content": "Would you like to schedule a demo?"},
                 {"role": "customer", "content": "Sure, let's do tomorrow at 3 PM."},
-                {"role": "agent", "content": "Perfect, I've booked a demo for tomorrow at 3 PM."},
+                {
+                    "role": "agent",
+                    "content": "Perfect, I've booked a demo for tomorrow at 3 PM.",
+                },
                 {"role": "customer", "content": "Thank you, bye."},
             ]
         },
@@ -258,3 +303,101 @@ async def _update_interaction_status(
             "ended_at": ended_at.isoformat(),
         },
     )
+
+
+async def _update_interaction_status(
+    interaction_id: str,
+    status: str,
+    ended_at: datetime,
+    duration: Optional[int],
+    call_sid: Optional[str],
+) -> None:
+    """Update interaction status in database."""
+    async with async_session_factory() as session:
+        await session.execute(
+            Interaction.__table__.update()
+            .where(Interaction.id == interaction_id)
+            .values(
+                status=status,
+                ended_at=ended_at,
+                duration_seconds=duration,
+                call_sid=call_sid,
+            )
+        )
+        await session.commit()
+
+        logger.info(
+            "interaction_status_updated",
+            extra={
+                "interaction_id": interaction_id,
+                "status": status,
+                "ended_at": ended_at.isoformat(),
+            },
+        )
+
+
+async def _update_processing_status(interaction_id: UUID, status: str) -> None:
+    """Update processing_status field on interaction."""
+    async with async_session_factory() as session:
+        await session.execute(
+            Interaction.__table__.update()
+            .where(Interaction.id == interaction_id)
+            .values(processing_status=status)
+        )
+        await session.commit()
+
+
+async def _create_postcall_task(
+    interaction: Interaction,
+    priority_class: PriorityClass,
+    estimated_tokens: int,
+) -> PostCallTask:
+    """Create a durable post-call processing task."""
+    task = PostCallTask(
+        interaction_id=interaction.id,
+        priority_class=priority_class.value,
+        customer_id=interaction.customer_id,
+        estimated_tokens=estimated_tokens,
+        status=TaskStatus.QUEUED,
+        recording_status=RecordingStatus.PENDING,
+    )
+
+    async with async_session_factory() as session:
+        session.add(task)
+        await session.commit()
+        await session.refresh(task)
+
+        # Link task to interaction
+        await session.execute(
+            Interaction.__table__.update()
+            .where(Interaction.id == interaction.id)
+            .values(
+                postcall_task_id=task.id,
+                priority_class=priority_class.value,
+            )
+        )
+        await session.commit()
+
+    return task
+
+
+async def _create_skipped_task(
+    interaction_id: UUID,
+    customer_id: UUID,
+    reason: str,
+) -> None:
+    """Create a task record for skipped interactions (audit trail)."""
+    task = PostCallTask(
+        interaction_id=interaction_id,
+        priority_class=PriorityClass.LOW.value,
+        customer_id=customer_id,
+        estimated_tokens=0,
+        status=TaskStatus.COMPLETED,
+        recording_status=RecordingStatus.SKIPPED,
+        completed_at=datetime.now(timezone.utc),
+    )
+    task.add_error(f"Skipped: {reason}")
+
+    async with async_session_factory() as session:
+        session.add(task)
+        await session.commit()
