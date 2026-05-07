@@ -68,8 +68,101 @@ class RecordingPoller:
                     interaction = await self._load_interaction(
                         session, task.interaction_id
                     )
+                    if not interaction:
+                        await self._mark_recording_failed(
+                            session, task, "interaction_not_found"
+                        )
+                        continue
+                    call_sid = interaction.call_sid
+                    exotel_account_id = interaction.exotel_account_id
+
+                    if not call_sid or not exotel_account_id:
+                        logger.warning(
+                            "recording_skip_missing_metadata",
+                            extra={
+                                "interaction_id": str(task.interaction_id),
+                                "has_call_sid": bool(call_sid),
+                                "has_exotel_account": bool(exotel_account_id),
+                            },
+                        )
+                        await self._mark_recording_failed(
+                            session, task, "missing_call_metadata"
+                        )
+                        continue
+                    # Attempt to fetch recording
+                    recording_url = await self._fetch_recording_url(
+                        call_sid, exotel_account_id
+                    )
+
+                    if recording_url:
+                        s3_key = await self._upload_to_s3(
+                            recording_url, str(task.interaction_id)
+                        )
+
+                        # Mark as ready
+                        task.recording_status = RecordingStatus.READY.value
+                        task.recording_s3_key = s3_key
+                        task.updated_at = datetime.now()
+
+                        logger.info(
+                            "recording_ready",
+                            extra={
+                                "interaction_id": str(task.interaction_id),
+                                "s3_key": s3_key,
+                                "poll_attempts": task.recording_retry_count + 1,
+                            },
+                        )
+                        uploaded_count += 1
+                    else:
+                        # Recording not ready yet, schedule next poll
+                        task.recording_retry_count += 1
+
+                        if task.recording_retry_count >= self.MAX_RETRIES:
+                            await self._mark_recording_failed(
+                                session, task, "max_retries_exceeded"
+                            )
+                        else:
+                            next_delay = self._calculate_backoff(
+                                task.recording_retry_count
+                            )
+                            task.next_poll_at = datetime.now() + timedelta(
+                                seconds=next_delay
+                            )
+
+                            logger.debug(
+                                "recording_not_ready_scheduled_retry",
+                                extra={
+                                    "interaction_id": str(task.interaction_id),
+                                    "attempt": task.recording_retry_count,
+                                    "next_poll_in_s": next_delay,
+                                },
+                            )
+                        await session.commit()
                 except Exception as e:
-                    pass
+                    logger.exception(
+                        "recording_poll_error",
+                        extra={
+                            "interaction_id": str(task.interaction_id),
+                            "error": str(e),
+                        },
+                    )
+                    await session.rollback()
+
+                    # Don't mark as failed on transient errors, just let it retry
+                    task.recording_retry_count += 1
+                    if task.recording_retry_count < self.MAX_RETRIES:
+                        next_delay = self._calculate_backoff(task.recording_retry_count)
+                        task.next_poll_at = datetime.now() + timedelta(
+                            seconds=next_delay
+                        )
+                        await session.commit()
+
+            logger.info(
+                "recording_poll_batch_complete",
+                extra={"processed": len(tasks), "uploaded": uploaded_count},
+            )
+
+            return uploaded_count
 
     async def _load_interaction(self, session, interaction_id):
         """Load interaction to get call metadata."""
@@ -154,9 +247,7 @@ class RecordingPoller:
 
         await self._emit_recording_failure_alert(task)
 
-    async def _emit_recording_failure_alert(
-        self, task: PostCallTask
-    ) -> None:
+    async def _emit_recording_failure_alert(self, task: PostCallTask) -> None:
         """Emit recording failure for alerting."""
         # Increment failure counter in Redis for alerting
         alert_key = "alerts:recording_failures:hour"
