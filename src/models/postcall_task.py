@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -84,7 +84,7 @@ class PostCallTask(Base):
         """Check if task can be picked up by scheduler."""
         if self.status not in (TaskStatus.QUEUED.value, TaskStatus.DEFERRED.value):
             return False
-        if self.scheduled_at > datetime.now():
+        if self.scheduled_at > datetime.now(timezone.utc)():
             return False
         return True
 
@@ -94,7 +94,7 @@ class PostCallTask(Base):
         errors.append(
             {
                 "error": error,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc)().isoformat(),
             }
         )
         self.error_log = errors

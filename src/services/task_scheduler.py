@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import select, and_, func, update
@@ -105,7 +105,7 @@ class TaskScheduler:
                             [TaskStatus.QUEUED.value, TaskStatus.DEFERRED.value]
                         ),
                         PostCallTask.priority_class == priority_class,
-                        PostCallTask.scheduled_at <= datetime.now(),
+                        PostCallTask.scheduled_at <= datetime.now(timezone.utc)(),
                     )
                 )
                 .limit(limit)
@@ -118,7 +118,7 @@ class TaskScheduler:
                 .where(PostCallTask.id.in_(subq))
                 .values(
                     status=TaskStatus.PROCESSING.value,
-                    started_at=datetime.now(),
+                    started_at=datetime.now(timezone.utc)(),
                     version=PostCallTask.version + 1,
                 )
                 .returning(PostCallTask)
@@ -196,9 +196,9 @@ class TaskScheduler:
     async def _defer_task(self, task: PostCallTask, reason: str) -> None:
         """Defer a task to next minute"""
         async with async_session_factory() as session:
-            next_minute = datetime.now().replace(second=0, microsecond=0) + timedelta(
-                minutes=1
-            )
+            next_minute = datetime.now(timezone.utc)().replace(
+                second=0, microsecond=0
+            ) + timedelta(minutes=1)
 
             await session.execute(
                 update(PostCallTask)

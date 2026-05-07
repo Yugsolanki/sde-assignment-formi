@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 import httpx
@@ -52,7 +52,7 @@ class RecordingPoller:
                 .where(
                     and_(
                         PostCallTask.recording_status == RecordingStatus.PENDING.value,
-                        PostCallTask.next_poll_at <= datetime.now(),
+                        PostCallTask.next_poll_at <= datetime.now(timezone.utc)(),
                     )
                 )
                 .limit(self.BATCH_SIZE)
@@ -134,9 +134,9 @@ class RecordingPoller:
                             next_delay = self._calculate_backoff(
                                 task.recording_retry_count
                             )
-                            task.next_poll_at = datetime.now() + timedelta(
-                                seconds=next_delay
-                            )
+                            task.next_poll_at = datetime.now(
+                                timezone.utc
+                            )() + timedelta(seconds=next_delay)
 
                             logger.debug(
                                 "recording_not_ready_scheduled_retry",
@@ -162,7 +162,7 @@ class RecordingPoller:
                     task.recording_retry_count += 1
                     if task.recording_retry_count < self.MAX_RETRIES:
                         next_delay = self._calculate_backoff(task.recording_retry_count)
-                        task.next_poll_at = datetime.now() + timedelta(
+                        task.next_poll_at = datetime.now(timezone.utc)() + timedelta(
                             seconds=next_delay
                         )
                         await session.commit()
