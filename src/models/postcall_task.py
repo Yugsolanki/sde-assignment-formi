@@ -10,6 +10,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     func,
+    Enum,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSON as PG_JSONB
 
@@ -48,14 +49,21 @@ class PostCallTask(Base):
     customer_id = Column(UUID(as_uuid=True), nullable=False, index=True)
 
     status = Column(
-        String(20), nullable=False, default=TaskStatus.QUEUED.value, index=True
+        "status",
+        Enum(TaskStatus, name="task_status"),
+        nullable=False,
+        default=TaskStatus.QUEUED,
+        index=True,
     )
     scheduled_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     recording_status = Column(
-        String(20), nullable=False, default=RecordingStatus.PENDING.value
+        "recording_status",
+        Enum(RecordingStatus, name="recording_status"),
+        nullable=False,
+        default=RecordingStatus.PENDING,
     )
     recording_s3_key = Column(String(512), nullable=True)
     recording_retry_count = Column(Integer, nullable=False, default=0)
@@ -82,7 +90,7 @@ class PostCallTask(Base):
     @property
     def is_ready_for_processing(self) -> bool:
         """Check if task can be picked up by scheduler."""
-        if self.status not in (TaskStatus.QUEUED.value, TaskStatus.DEFERRED.value):
+        if self.status not in (TaskStatus.QUEUED, TaskStatus.DEFERRED):
             return False
         if self.scheduled_at > datetime.now(timezone.utc)():
             return False
