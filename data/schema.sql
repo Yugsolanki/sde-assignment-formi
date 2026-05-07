@@ -225,6 +225,29 @@ BEFORE UPDATE ON customer_configs
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
 
+-- ========================================================================
+-- LLM Usage Logs Table
+-- ========================================================================
+
+CREATE TABLE IF NOT EXISTS llm_usage_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    interaction_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+    campaign_id UUID NOT NULL,
+    
+    tokens_used INT NOT NULL,
+    latency_ms INT NOT NULL,
+    
+    call_stage VARCHAR(50),
+    model VARCHAR(100) NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+);
+
+CREATE INDEX idx_llm_usage_interaction ON llm_usage_log(interaction_id);
+CREATE INDEX idx_llm_usage_customer_date ON llm_usage_log(customer_id, created_at);
+CREATE INDEX idx_llm_usage_campaign ON llm_usage_log(campaign_id, created_at);
 
 -- ========================================================================
 -- Seed data: sample interactions for testing
