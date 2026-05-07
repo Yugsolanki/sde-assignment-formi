@@ -45,6 +45,7 @@ CREATE TYPE recording_status AS ENUM(
     'SKIPPED'
 );
 
+
 -- ========================================================================
 -- Main tables
 -- ========================================================================
@@ -203,6 +204,27 @@ CREATE TRIGGER trg_postcall_tasks_updated_at
 BEFORE UPDATE ON postcall_tasks
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
+
+-- ========================================================================
+-- Customer Configs Table
+-- ========================================================================
+
+CREATE TABLE IF NOT EXISTS customer_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    customer_id UUID NOT NULL UNIQUE,
+    token_budget_per_minute INT NOT NULL DEFAULT 10000,
+    priority_boost FLOAT NOT NULL DEFAULT 1.0 CHECK (priority_boost >= 0.0 AND priority_boost <= 2.0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+
+CREATE INDEX idx_customer_configs_customer ON customer_configs(customer_id);
+
+CREATE TRIGGER trg_customer_configs_updated_at
+BEFORE UPDATE ON customer_configs
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at();
+
 
 -- ========================================================================
 -- Seed data: sample interactions for testing
