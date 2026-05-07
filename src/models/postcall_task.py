@@ -92,7 +92,7 @@ class PostCallTask(Base):
         """Check if task can be picked up by scheduler."""
         if self.status not in (TaskStatus.QUEUED, TaskStatus.DEFERRED):
             return False
-        if self.scheduled_at > datetime.now(timezone.utc)():
+        if self.scheduled_at > datetime.now(timezone.utc):
             return False
         return True
 
@@ -102,7 +102,7 @@ class PostCallTask(Base):
         errors.append(
             {
                 "error": error,
-                "timestamp": datetime.now(timezone.utc)().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
         self.error_log = errors
