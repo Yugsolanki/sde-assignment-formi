@@ -105,7 +105,7 @@ class TaskScheduler:
                             [TaskStatus.QUEUED.value, TaskStatus.DEFERRED.value]
                         ),
                         PostCallTask.priority_class == priority_class,
-                        PostCallTask.scheduled_at <= datetime.now(timezone.utc)(),
+                        PostCallTask.scheduled_at <= datetime.now(timezone.utc),
                     )
                 )
                 .limit(limit)
@@ -118,7 +118,7 @@ class TaskScheduler:
                 .where(PostCallTask.id.in_(subq))
                 .values(
                     status=TaskStatus.PROCESSING.value,
-                    started_at=datetime.now(timezone.utc)(),
+                    started_at=datetime.now(timezone.utc),
                     version=PostCallTask.version + 1,
                 )
                 .returning(PostCallTask)
@@ -196,7 +196,7 @@ class TaskScheduler:
     async def _defer_task(self, task: PostCallTask, reason: str) -> None:
         """Defer a task to next minute"""
         async with async_session_factory() as session:
-            next_minute = datetime.now(timezone.utc)().replace(
+            next_minute = datetime.now(timezone.utc).replace(
                 second=0, microsecond=0
             ) + timedelta(minutes=1)
 
