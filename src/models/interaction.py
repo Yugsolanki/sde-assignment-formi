@@ -46,10 +46,10 @@ class Interaction(Base):
 
     priority_class = Column(SmallInteger, nullable=False, default=PriorityClass.NORMAL.value, index=True)
     postcall_task_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    processing_status = Column(TaskStatus, nullable=False, default=TaskStatus.QUEUED.value, index=True)
+    processing_status = Column("processing_status", Enum(TaskStatus, name="task_status"), nullable=False, default=TaskStatus.QUEUED, index=True)
 
     status = Column(
-        Enum(InteractionStatus), default=InteractionStatus.INITIATED, nullable=False
+        "status", Enum(InteractionStatus, name="interaction_status"), default=InteractionStatus.INITIATED, nullable=False
     )
     call_sid = Column(String(255), nullable=True, index=True)
     call_provider = Column(String(50), default="exotel")
