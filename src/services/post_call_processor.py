@@ -23,7 +23,7 @@ scanning logs.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
@@ -104,9 +104,9 @@ class PostCallProcessor:
                 single_prompt,
             )
 
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             response = await self._call_llm(prompt)
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
             result = self._parse_response(response, elapsed_ms)
 
