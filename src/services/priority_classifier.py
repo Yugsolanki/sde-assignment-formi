@@ -108,7 +108,7 @@ class PriorityClassifier:
         Uses heuristic: 1 token ≈ 4 characters for English text,
         plus fixed overhead for system prompt and response.
         """
-        if not transcript_text:
+        if not transcript_text or len(transcript_text.strip()) < 50:
             return 500  # Minimum for empty/short transcript
 
         # character based estimation
