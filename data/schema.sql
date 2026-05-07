@@ -4,7 +4,9 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Utility Functions
+-- ========================================================================
+-- Utility functions
+-- ========================================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -15,7 +17,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+-- ========================================================================
 -- ENUMS
+-- ========================================================================
 
 CREATE TYPE interaction_status AS ENUM(
     'INITIATED',
@@ -41,6 +45,14 @@ CREATE TYPE recording_status AS ENUM(
     'SKIPPED'
 );
 
+-- ========================================================================
+-- Main tables
+-- ========================================================================
+
+-- ========================================================================
+-- Leads Table
+-- ========================================================================
+
 CREATE TABLE leads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID NOT NULL,
@@ -62,6 +74,10 @@ BEFORE UPDATE ON leads
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
 
+-- ========================================================================
+-- Sessions Table
+-- ========================================================================
+
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     lead_id UUID NOT NULL REFERENCES leads(id),
@@ -80,6 +96,10 @@ CREATE TRIGGER trg_sessions_updated_at
 BEFORE UPDATE ON sessions
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
+
+-- ========================================================================
+-- Interactions Table
+-- ========================================================================
 
 CREATE TABLE interactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -136,6 +156,10 @@ BEFORE UPDATE ON interactions
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
 
+-- ========================================================================
+-- Post-Call Tasks Table
+-- ========================================================================
+
 CREATE TABLE IF NOT EXISTS postcall_tasks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     interaction_id UUID NOT NULL,
@@ -180,8 +204,10 @@ BEFORE UPDATE ON postcall_tasks
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at();
 
+-- ========================================================================
 -- Seed data: sample interactions for testing
 -- (Uses fixed UUIDs for reproducibility)
+-- ========================================================================
 
 INSERT INTO leads (id, campaign_id, customer_id, name, phone, stage) VALUES
     ('a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'Rahul Sharma', '+919876543210', 'contacted'),
