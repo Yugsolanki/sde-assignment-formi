@@ -36,6 +36,10 @@ class RecordingPoller:
     async def poll_pending_recordings(self) -> int:
         """
         Poll recordings for all tasks with PENDING status.
+        It will attempt to fetch the recording URL from Exotel API, and if successful,
+        it will upload the recording to S3 and mark the task as READY.
+        If the recording is not ready, it will schedule the next poll with exponential backoff.
+        If max retries are exceeded, it will mark the task as FAILED.
 
         Returns:
             Number of recordings successfully uploaded
@@ -58,6 +62,7 @@ class RecordingPoller:
             result = await session.execute(stmt)
             tasks = result.scalars().all()
 
+            # If no tasks are pending, return early
             if not tasks:
                 return 0
 
@@ -65,6 +70,7 @@ class RecordingPoller:
 
             for task in tasks:
                 try:
+                    # Load interaction to get call_sid and exotel_account_id
                     interaction = await self._load_interaction(
                         session, task.interaction_id
                     )
@@ -73,6 +79,7 @@ class RecordingPoller:
                             session, task, "interaction_not_found"
                         )
                         continue
+
                     call_sid = interaction.call_sid
                     exotel_account_id = interaction.exotel_account_id
 
@@ -89,12 +96,14 @@ class RecordingPoller:
                             session, task, "missing_call_metadata"
                         )
                         continue
+
                     # Attempt to fetch recording
                     recording_url = await self._fetch_recording_url(
                         call_sid, exotel_account_id
                     )
 
                     if recording_url:
+                        # Upload to S3 and mark as ready
                         s3_key = await self._upload_to_s3(
                             recording_url, str(task.interaction_id)
                         )
@@ -102,7 +111,6 @@ class RecordingPoller:
                         # Mark as ready
                         task.recording_status = RecordingStatus.READY.value
                         task.recording_s3_key = s3_key
-                        task.updated_at = datetime.now()
 
                         logger.info(
                             "recording_ready",
@@ -112,6 +120,7 @@ class RecordingPoller:
                                 "poll_attempts": task.recording_retry_count + 1,
                             },
                         )
+
                         uploaded_count += 1
                     else:
                         # Recording not ready yet, schedule next poll
@@ -137,6 +146,7 @@ class RecordingPoller:
                                     "next_poll_in_s": next_delay,
                                 },
                             )
+
                         await session.commit()
                 except Exception as e:
                     logger.exception(
