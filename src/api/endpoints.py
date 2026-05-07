@@ -143,20 +143,20 @@ async def end_interaction(
                 trigger_signal_jobs(
                     interaction_id=str(interaction_id),
                     session_id=str(session_id),
-                    campaign_id=interaction["campaign_id"],
+                    campaign_id=interaction.campaign_id,
                     analysis_result={"call_stage": "short_call"},
                 )
             )
             asyncio.create_task(
                 update_lead_stage(
-                    lead_id=interaction["lead_id"],
+                    lead_id=interaction.lead_id,
                     interaction_id=str(interaction_id),
                     call_stage="short_call",
                 )
             )
 
             await _update_processing_status(
-                interaction_id=interaction.id, status="SKIPPED_SHORT"
+                interaction_id=interaction.id, status="COMPLETED"
             )
         else:
             # Long transcript: pack everything into a Celery payload and enqueue.
@@ -200,6 +200,23 @@ async def end_interaction(
             await _update_processing_status(
                 interaction_id=interaction.id, status="QUEUED"
             )
+
+            # Dispatch Celery task for background processing
+            payload = {
+                "interaction_id": str(interaction_id),
+                "session_id": str(session_id),
+                "lead_id": str(interaction.lead_id),
+                "campaign_id": str(interaction.campaign_id),
+                "customer_id": str(interaction.customer_id),
+                "agent_id": str(interaction.agent_id),
+                "call_sid": request.call_sid or "",
+                "transcript_text": transcript_text,
+                "conversation_data": dict(interaction.conversation_data) if interaction.conversation_data else {},
+                "additional_data": request.additional_data or {},
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+                "exotel_account_id": interaction.exotel_account_id,
+            }
+            process_interaction_end_background_task.apply_async(args=[payload])
 
             # Trigger immediate signal jobs with empty result (processing started)
             asyncio.create_task(
