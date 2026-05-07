@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS customer_configs (
     priority_boost FLOAT NOT NULL DEFAULT 1.0 CHECK (priority_boost >= 0.0 AND priority_boost <= 2.0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)
+);
 
 CREATE INDEX idx_customer_configs_customer ON customer_configs(customer_id);
 
@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS llm_usage_log (
     model VARCHAR(100) NOT NULL,
     provider VARCHAR(50) NOT NULL,
     
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_llm_usage_interaction ON llm_usage_log(interaction_id);
