@@ -27,7 +27,7 @@ class Session(Base):
     agent_id = Column(UUID(as_uuid=True), nullable=False, index=True)
 
     status = Column(
-        Enum(SessionStatus), default=SessionStatus.ACTIVE, nullable=False
+        Enum(SessionStatus, name="session_status"), default=SessionStatus.ACTIVE, nullable=False
     )
 
     created_at = Column(
