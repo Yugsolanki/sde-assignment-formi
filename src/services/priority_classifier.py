@@ -52,6 +52,27 @@ class PriorityClassifier:
         Returns:
             PriorityClass enum value
         """
+        # Check conversation metadata for explicit signals first - disposition takes priority
+        if conversation_data:
+            call_disposition = conversation_data.get("disposition", "")
+            if not call_disposition and isinstance(conversation_data.get("conversation_data"), dict):
+                call_disposition = conversation_data.get("conversation_data", {}).get("disposition", "")
+            if call_disposition in [
+                "interested",
+                "callback_requested",
+                "appointment_booked",
+                "escalation_needed",
+                "demo_booked",
+            ]:
+                return PriorityClass.HIGH
+            elif call_disposition in [
+                "not_interested",
+                "voicemail",
+                "wrong_number",
+                "short_call",
+            ]:
+                return PriorityClass.LOW
+
         if not transcript_text or len(transcript_text.strip()) < 50:
             logger.debug(
                 "priority_low_short_transcript",
@@ -75,24 +96,6 @@ class PriorityClassifier:
                 logger.info(
                     "priority_low_pattern_matched", extra={"pattern": pattern[:50]}
                 )
-
-        # Check conversation metadata for explicit signals
-        if conversation_data:
-            call_disposition = conversation_data.get("disposition", "")
-            if call_disposition in [
-                "interested",
-                "callback_requested",
-                "appointment_booked",
-                "escalation_needed",
-                "demo_booked",
-            ]:
-                return PriorityClass.HIGH
-            elif call_disposition in [
-                "not_interested",
-                "voicemail",
-                "wrong_number",
-                "short_call",
-            ]:
                 return PriorityClass.LOW
 
         # Default to normal priority
