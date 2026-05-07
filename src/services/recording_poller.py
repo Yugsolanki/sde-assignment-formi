@@ -52,7 +52,7 @@ class RecordingPoller:
                 .where(
                     and_(
                         PostCallTask.recording_status == RecordingStatus.PENDING.value,
-                        PostCallTask.next_poll_at <= datetime.now(timezone.utc)(),
+                        PostCallTask.next_poll_at <= datetime.now(timezone.utc),
                     )
                 )
                 .limit(self.BATCH_SIZE)
@@ -60,7 +60,7 @@ class RecordingPoller:
             )
 
             result = await session.execute(stmt)
-            tasks = result.scalars().all()
+            tasks = await result.scalars().all()
 
             # If no tasks are pending, return early
             if not tasks:
@@ -134,9 +134,9 @@ class RecordingPoller:
                             next_delay = self._calculate_backoff(
                                 task.recording_retry_count
                             )
-                            task.next_poll_at = datetime.now(
-                                timezone.utc
-                            )() + timedelta(seconds=next_delay)
+                            task.next_poll_at = datetime.now(timezone.utc) + timedelta(
+                                seconds=next_delay
+                            )
 
                             logger.debug(
                                 "recording_not_ready_scheduled_retry",
@@ -162,7 +162,7 @@ class RecordingPoller:
                     task.recording_retry_count += 1
                     if task.recording_retry_count < self.MAX_RETRIES:
                         next_delay = self._calculate_backoff(task.recording_retry_count)
-                        task.next_poll_at = datetime.now(timezone.utc)() + timedelta(
+                        task.next_poll_at = datetime.now(timezone.utc) + timedelta(
                             seconds=next_delay
                         )
                         await session.commit()
@@ -180,7 +180,7 @@ class RecordingPoller:
 
         stmt = select(Interaction).where(Interaction.id == interaction_id)
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        return await (await result.scalar_one_or_none())
 
     async def _fetch_recording_url(
         self,
@@ -266,7 +266,7 @@ class RecordingPoller:
 
     def _calculate_backoff(self, attempt: int) -> int:
         """Calculate exponential backoff delay."""
-        delay = self.BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+        delay = self.BASE_DELAY_SECONDS * (2**attempt)
         return min(delay, self.MAX_DELAY_SECONDS)
 
 
